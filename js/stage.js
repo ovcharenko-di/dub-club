@@ -13,7 +13,8 @@ export function createStage(prep) {
     : null;
   const progress = h('div');
   const el = h('div', { class: 'stack' },
-    h('div', { class: 'stage' }, video || canvas, badge),
+    h('div', { class: 'stage' }, video || canvas, badge,
+      prep.text && h('div', { class: 'subtitle' }, prep.text)),
     h('div', { class: 'progress' }, progress),
   );
 

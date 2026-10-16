@@ -109,8 +109,32 @@ export const DEMO_PACK = {
 // ---------- Preparing lines for playback & analysis ----------
 
 const prepared = new WeakMap();
+const decodedBlobs = new WeakMap();
+const videoUrls = new WeakMap();
 
-/** Returns { buffer, videoUrl, start, end } for a line (cached per line object). */
+/**
+ * Decode the audio track of a (possibly long) media file once per Blob.
+ * Video soundtracks are decoded at 16 kHz: they're only used for analysis
+ * and waveforms (the video element plays the real sound), and it keeps memory low.
+ */
+export function decodeMedia(blob, { lowRate = false } = {}) {
+  let cached = decodedBlobs.get(blob);
+  if (!cached) {
+    cached = lowRate
+      ? blob.arrayBuffer().then((data) => new OfflineAudioContext(1, 1, 16000).decodeAudioData(data))
+      : decode(blob);
+    cached.catch(() => decodedBlobs.delete(blob));
+    decodedBlobs.set(blob, cached);
+  }
+  return cached;
+}
+
+export function videoUrlFor(blob) {
+  if (!videoUrls.has(blob)) videoUrls.set(blob, URL.createObjectURL(blob));
+  return videoUrls.get(blob);
+}
+
+/** Returns { buffer, videoUrl, start, end, text } for a line (cached per line object). */
 export async function prepareLine(line) {
   if (prepared.has(line)) return prepared.get(line);
   let result;
@@ -118,23 +142,23 @@ export async function prepareLine(line) {
     const buffer = await synthesize(line.syllables);
     result = { buffer, videoUrl: null, start: 0, end: buffer.duration };
   } else {
-    const full = await decode(line.blob);
+    const isVideo = line.kind === 'video';
+    const full = await decodeMedia(line.blob, { lowRate: isVideo });
     const start = line.start || 0;
     const end = Math.min(full.duration, line.end || full.duration);
     result = {
       buffer: sliceBuffer(full, start, end),
-      videoUrl: line.kind === 'video' ? URL.createObjectURL(line.blob) : null,
+      videoUrl: isVideo ? videoUrlFor(line.blob) : null,
       start,
       end,
     };
   }
+  result.text = line.text || '';
   prepared.set(line, result);
   return result;
 }
 
 export function forgetPrepared(line) {
-  const p = prepared.get(line);
-  if (p?.videoUrl) URL.revokeObjectURL(p.videoUrl);
   prepared.delete(line);
 }
 
@@ -165,6 +189,10 @@ async function withStore(mode, fn) {
 }
 
 function serializable(pack) {
+  if (pack.type === 'video') {
+    const { id, name, type, video, videoName, cues } = pack;
+    return { id, name, type, video, videoName, cues: cues.map(({ id, start, end, text }) => ({ id, start, end, text })) };
+  }
   return {
     id: pack.id,
     name: pack.name,
@@ -174,12 +202,24 @@ function serializable(pack) {
   };
 }
 
+/** Video packs store one video + cues; the game wants a flat list of lines. */
+function withLines(pack) {
+  if (pack.type !== 'video') return pack;
+  const lines = [...pack.cues]
+    .sort((a, b) => a.start - b.start)
+    .map((cue, i) => ({
+      id: cue.id, kind: 'video', blob: pack.video, start: cue.start, end: cue.end,
+      text: cue.text, title: `Реплика ${i + 1}`,
+    }));
+  return { ...pack, lines };
+}
+
 export async function listCustomPacks() {
   try {
-    return (await withStore('readonly', (s) => s.getAll())) || [];
+    return ((await withStore('readonly', (s) => s.getAll())) || []).map(withLines);
   } catch (err) {
     console.warn('Using in-memory packs:', err);
-    return [...memoryFallback.values()];
+    return [...memoryFallback.values()].map(withLines);
   }
 }
 
@@ -203,3 +243,59 @@ export async function allPacks() {
 }
 
 export const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+// ---------- Pack files (export / import) ----------
+
+const PACK_FORMAT = 'dub-club-pack';
+
+export async function exportVideoPack(pack) {
+  const { createZip } = await import('./zip.js');
+  const { toSrt } = await import('./subtitles.js');
+  const ext = (pack.videoName?.match(/\.[a-z0-9]+$/i)?.[0] || extForMime(pack.video.type)).toLowerCase();
+  const videoFile = `video${ext}`;
+  const cues = [...pack.cues].sort((a, b) => a.start - b.start);
+  const manifest = {
+    format: PACK_FORMAT,
+    version: 1,
+    name: pack.name,
+    video: videoFile,
+    videoType: pack.video.type,
+    cues: cues.map(({ start, end, text }) => ({ start, end, text })),
+  };
+  return createZip([
+    { name: 'pack.json', data: JSON.stringify(manifest, null, 2) },
+    { name: 'subtitles.srt', data: toSrt(cues) },
+    { name: videoFile, data: pack.video },
+  ]);
+}
+
+function extForMime(type) {
+  if (type.includes('webm')) return '.webm';
+  if (type.includes('ogg')) return '.ogv';
+  if (type.includes('quicktime')) return '.mov';
+  return '.mp4';
+}
+
+/** Import a pack .zip, save it and return the stored pack. */
+export async function importVideoPack(file) {
+  const { readZip } = await import('./zip.js');
+  const files = await readZip(file);
+  const manifestBlob = files.get('pack.json');
+  if (!manifestBlob) throw new Error('В архиве нет pack.json — это не пак Dub Club.');
+  const manifest = JSON.parse(await manifestBlob.text());
+  if (manifest.format !== PACK_FORMAT) throw new Error('Неизвестный формат пака.');
+  const videoBlob = files.get(manifest.video);
+  if (!videoBlob) throw new Error('В архиве нет видео.');
+  const pack = {
+    id: newId(),
+    name: manifest.name || file.name.replace(/\.[^.]+$/, ''),
+    type: 'video',
+    video: new Blob([videoBlob], { type: manifest.videoType || 'video/mp4' }),
+    videoName: manifest.video,
+    cues: (manifest.cues || [])
+      .filter((c) => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end > c.start)
+      .map((c) => ({ id: newId(), start: c.start, end: c.end, text: String(c.text || '') })),
+  };
+  await saveCustomPack(pack);
+  return pack;
+}
