@@ -36,7 +36,8 @@ export function gameScreen(nav, { pack, players, rounds }) {
   async function turnScreen() {
     const line = roundLines[state.round];
     const player = state.players[state.turn];
-    const body = h('div', { class: 'stack' }, h('div', { class: 'card' }, h('div', { class: 'spinner' })));
+    const body = h('div', { class: 'stack' }, h('div', { class: 'card stack' },
+      h('div', { class: 'spinner' }), h('p', { class: 'muted small', style: { textAlign: 'center' } }, 'Готовим реплику…')));
     let stage = null;
     let cancelRecording = null;
     mount(h('section', { class: 'screen' }, header(), body), () => {
@@ -53,6 +54,7 @@ export function gameScreen(nav, { pack, players, rounds }) {
       console.error(err);
       body.replaceChildren(h('div', { class: 'card stack' },
         h('p', null, `Не удалось загрузить реплику «${line.title}».`),
+        h('p', { class: 'muted small' }, err?.message || String(err)),
         h('button', { onclick: next }, 'Пропустить')));
       return;
     }

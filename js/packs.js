@@ -1,4 +1,4 @@
-import { decode, sliceBuffer } from './audio.js';
+import { audioCtx, decode, sliceBuffer, seekVideo, Recorder } from './audio.js';
 
 // ---------- Built-in demo pack: synthesized "voice tricks" ----------
 
@@ -117,6 +117,10 @@ const videoUrls = new WeakMap();
  * Video soundtracks are decoded at 16 kHz: they're only used for analysis
  * and waveforms (the video element plays the real sound), and it keeps memory low.
  */
+// Above this size the whole soundtrack is not decoded at once (it would need
+// the entire file plus the decoded audio in memory); segments are captured instead.
+export const MAX_FULL_DECODE = 200 * 1024 * 1024;
+
 export function decodeMedia(blob, { lowRate = false } = {}) {
   let cached = decodedBlobs.get(blob);
   if (!cached) {
@@ -143,19 +147,80 @@ export async function prepareLine(line) {
     result = { buffer, videoUrl: null, start: 0, end: buffer.duration };
   } else {
     const isVideo = line.kind === 'video';
-    const full = await decodeMedia(line.blob, { lowRate: isVideo });
     const start = line.start || 0;
-    const end = Math.min(full.duration, line.end || full.duration);
-    result = {
-      buffer: sliceBuffer(full, start, end),
-      videoUrl: isVideo ? videoUrlFor(line.blob) : null,
-      start,
-      end,
-    };
+    let buffer = null, end = line.end;
+    let decodeError = null;
+    if (!isVideo || line.blob.size <= MAX_FULL_DECODE) {
+      try {
+        const full = await decodeMedia(line.blob, { lowRate: isVideo });
+        end = Math.min(full.duration, line.end || full.duration);
+        buffer = sliceBuffer(full, start, end);
+      } catch (err) {
+        if (!isVideo) throw err;
+        decodeError = err;
+        console.warn('Full decode failed, capturing the segment from the video instead:', err);
+      }
+    }
+    if (!buffer) {
+      try {
+        buffer = await captureSegment(line.blob, start, end);
+      } catch (err) {
+        throw new Error(`Не получилось извлечь звук реплики: ${describe(err)}${decodeError ? ` (декодер: ${describe(decodeError)})` : ''}`);
+      }
+    }
+    result = { buffer, videoUrl: isVideo ? videoUrlFor(line.blob) : null, start, end };
   }
   result.text = line.text || '';
   prepared.set(line, result);
   return result;
+}
+
+const describe = (err) => [err?.name, err?.message].filter(Boolean).join(': ') || String(err);
+
+/**
+ * Get a segment's audio by playing it in a hidden <video> (inaudibly) and
+ * recording the element's output. Works for any file the browser can play,
+ * whatever its size or audio codec, at the cost of real-time duration.
+ */
+async function captureSegment(blob, start, end) {
+  const c = audioCtx();
+  const video = document.createElement('video');
+  video.preload = 'auto';
+  video.playsInline = true;
+  video.src = videoUrlFor(blob);
+  const failed = new Promise((_, reject) => {
+    video.addEventListener('error', () => reject(new Error('браузер не может воспроизвести это видео')), { once: true });
+  });
+  const source = c.createMediaElementSource(video);
+  const mute = c.createGain();
+  mute.gain.value = 0;
+  const dest = c.createMediaStreamDestination();
+  source.connect(dest);
+  source.connect(mute).connect(c.destination);
+  try {
+    await Promise.race([seekVideo(video, start), failed]);
+    const recorder = new Recorder(dest.stream);
+    await recorder.start();
+    const recStarted = performance.now();
+    await Promise.race([video.play(), failed]);
+    const playStarted = performance.now();
+    await Promise.race([failed, new Promise((resolve) => {
+      const check = () => {
+        if (video.currentTime >= end || video.ended) return resolve();
+        setTimeout(check, 20);
+      };
+      check();
+    })]);
+    video.pause();
+    const raw = await decode(await recorder.stop());
+    const offset = Math.max(0, (playStarted - recStarted) / 1000);
+    return sliceBuffer(raw, offset, offset + (end - start));
+  } finally {
+    video.pause();
+    source.disconnect();
+    video.removeAttribute('src');
+    video.load();
+  }
 }
 
 export function forgetPrepared(line) {
