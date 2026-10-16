@@ -50,6 +50,7 @@ export function gameScreen(nav, { pack, players, rounds }) {
       prep = await prepareLine(line);
       ref = refFeatures.get(prep) || (await extractFeatures(prep.buffer));
       refFeatures.set(prep, ref);
+      if (ref.empty) toast('В этой реплике не слышно звука — проверьте её границы в редакторе', { error: true, ms: 6000 });
     } catch (err) {
       console.error(err);
       body.replaceChildren(h('div', { class: 'card stack' },

@@ -138,8 +138,8 @@ function pearson(a, b) {
  * (higher is better) or { silent: true } when nothing was heard.
  */
 export function compare(ref, take) {
+  if (ref.empty) return { silent: true, refSilent: true };
   if (take.empty || take.peak < 0.006 || take.frames < 5) return { silent: true };
-  if (ref.empty) return { silent: true };
 
   const n = ref.frames, m = take.frames;
   const relA = ref.midi.map((v) => v - ref.medianMidi);

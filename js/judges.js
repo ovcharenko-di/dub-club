@@ -68,6 +68,7 @@ export function toTen(score) {
 /** Returns [{ judge, score (0..10), comment }]. */
 export function judge(metrics) {
   return JUDGES.map((j) => {
+    if (metrics.refSilent) return { judge: j, score: 0, comment: 'В оригинале этой реплики тишина — сравнивать не с чем. Проверьте её границы в редакторе.' };
     if (metrics.silent) return { judge: j, score: 0, comment: pick(SILENT) };
     const score = toTen(j.rate(metrics));
     const tier = score >= 7.5 ? 'high' : score >= 4.5 ? 'mid' : 'low';
