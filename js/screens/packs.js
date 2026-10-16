@@ -2,7 +2,7 @@ import { h, mount, toast, downloadBlob } from '../ui.js';
 import { decode, getMic, micErrorMessage, Recorder, playBuffer, stopSource } from '../audio.js';
 import {
   DEMO_PACK, listCustomPacks, saveCustomPack, deleteCustomPack, prepareLine, forgetPrepared, newId,
-  exportVideoPack, importVideoPack,
+  exportVideoPack, importVideoPack, storageWarning,
 } from '../packs.js';
 
 const MAX_LINE = 20; // seconds
@@ -25,7 +25,8 @@ export async function packsScreen(nav) {
       if (!file) return;
       try {
         const pack = await importVideoPack(file);
-        toast(`Пак «${pack.name}» импортирован`);
+        if (pack.saveResult.persisted) toast(`Пак «${pack.name}» импортирован`);
+        else toast(storageWarning(pack.saveResult), { error: true, ms: 9000 });
         packsScreen(nav);
       } catch (err) {
         console.error(err);
@@ -175,8 +176,9 @@ function editPack(nav, original, isNew) {
   async function save() {
     if (!pack.name.trim()) return toast('Назовите пак', { error: true });
     if (!pack.lines.length) return toast('Добавьте хотя бы одну реплику', { error: true });
-    await saveCustomPack(pack);
-    toast('Пак сохранён');
+    const result = await saveCustomPack(pack);
+    if (result.persisted) toast('Пак сохранён');
+    else toast(storageWarning(result), { error: true, ms: 9000 });
     packsScreen(nav);
   }
 
