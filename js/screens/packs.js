@@ -1,6 +1,9 @@
-import { h, mount, toast } from '../ui.js';
+import { h, mount, toast, downloadBlob } from '../ui.js';
 import { decode, getMic, micErrorMessage, Recorder, playBuffer, stopSource } from '../audio.js';
-import { DEMO_PACK, listCustomPacks, saveCustomPack, deleteCustomPack, prepareLine, forgetPrepared, newId } from '../packs.js';
+import {
+  DEMO_PACK, listCustomPacks, saveCustomPack, deleteCustomPack, prepareLine, forgetPrepared, newId,
+  exportVideoPack, importVideoPack,
+} from '../packs.js';
 
 const MAX_LINE = 20; // seconds
 
@@ -10,19 +13,44 @@ export async function packsScreen(nav) {
   const item = (pack, actions) => h('div', { class: 'card pack-item' },
     h('div', null,
       h('h3', null, pack.name),
-      h('div', { class: 'muted small' }, `${pack.lines.length} реплик${pack.builtin ? ' · встроенный' : ''}`)),
+      h('div', { class: 'muted small' },
+        `${pack.lines.length} реплик${pack.builtin ? ' · встроенный' : ''}${pack.type === 'video' ? ' · видео с субтитрами' : ''}`)),
     h('div', { class: 'row' }, actions));
+
+  const importInput = h('input', {
+    type: 'file', accept: '.zip,application/zip', class: 'hidden',
+    onchange: async () => {
+      const file = importInput.files[0];
+      importInput.value = '';
+      if (!file) return;
+      try {
+        const pack = await importVideoPack(file);
+        toast(`Пак «${pack.name}» импортирован`);
+        packsScreen(nav);
+      } catch (err) {
+        console.error(err);
+        toast(err.message || 'Не удалось импортировать пак', { error: true });
+      }
+    },
+  });
 
   mount(h('section', { class: 'screen' },
     h('div', { class: 'topbar' }, h('h2', null, '📦 Паки реплик'), h('button', { onclick: nav.menu }, '← Меню')),
     h('p', { class: 'muted' },
       'Пак — это набор реплик для игры. Добавьте аудио- или видеофайлы (отрывки из фильмов, мультиков, мемов) ',
       'или запишите реплики сами — тогда друзья будут пародировать вас. Паки хранятся только в этом браузере.'),
-    h('button', { class: 'primary', onclick: () => editPack(nav, { id: newId(), name: 'Мой пак', lines: [] }, true) },
-      '＋ Новый пак'),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', onclick: () => nav.editor() }, '✂️ Пак из видео с субтитрами'),
+      h('button', { onclick: () => editPack(nav, { id: newId(), name: 'Мой пак', lines: [] }, true) }, '＋ Пак из файлов'),
+      h('button', { onclick: () => importInput.click() }, '📥 Импорт файла пака'),
+      importInput),
     item(DEMO_PACK, []),
     packs.map((pack) => item(pack, [
-      h('button', { onclick: () => editPack(nav, pack, false) }, '✎ Изменить'),
+      h('button', { onclick: () => (pack.type === 'video' ? nav.editor(pack) : editPack(nav, pack, false)) }, '✎ Изменить'),
+      pack.type === 'video' && h('button', {
+        title: 'Скачать файл пака, чтобы поделиться',
+        onclick: async () => downloadBlob(await exportVideoPack(pack), `${pack.name.replace(/[\\/:*?"<>|]+/g, '_')}.dubpack.zip`),
+      }, '⬇'),
       h('button', {
         class: 'danger',
         onclick: async () => {
