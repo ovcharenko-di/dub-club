@@ -232,24 +232,58 @@ export async function listCustomPacks() {
  * Save a pack. Returns { persisted: true } when it reached IndexedDB, or
  * { persisted: false, reason } when it is only kept until the page reloads.
  */
+const isQuotaError = (err) => err?.name === 'QuotaExceededError' || /quota/i.test(err?.message || '');
+
+/**
+ * File-backed blobs (a picked File or a slice of an imported .zip) are read
+ * lazily, and some browsers fail to copy them into IndexedDB (Safari, files in
+ * cloud-synced folders, …). Copying the bytes into memory first avoids that.
+ */
+async function inMemoryCopy(data) {
+  const copy = async (blob) => new Blob([await blob.arrayBuffer()], { type: blob.type });
+  if (data.type === 'video') return { ...data, video: await copy(data.video) };
+  return { ...data, lines: await Promise.all(data.lines.map(async (l) => ({ ...l, blob: l.blob && await copy(l.blob) }))) };
+}
+
+function failureReason(err) {
+  if (isQuotaError(err)) return 'Браузеру не хватило места для видео (часто так бывает в режиме инкогнито).';
+  const code = [err?.name, err?.message].filter(Boolean).join(': ');
+  if (['InvalidStateError', 'SecurityError'].includes(err?.name) || !window.indexedDB) {
+    return `Браузер запрещает этому сайту сохранять данные — например, в приватном режиме или из-за настроек конфиденциальности (${code}).`;
+  }
+  return `Браузер не дал сохранить данные (${code || 'неизвестная ошибка'}).`;
+}
+
+/**
+ * Save a pack. Returns { persisted: true } when it reached IndexedDB, or
+ * { persisted: false, reason } when it is only kept until the page reloads.
+ */
 export async function saveCustomPack(pack) {
-  const data = serializable(pack);
+  let data = serializable(pack);
+  navigator.storage?.persist?.().catch(() => {});
+  let error = null;
   try {
-    navigator.storage?.persist?.().catch(() => {});
     await withStore('readwrite', (s) => s.put(data));
+  } catch (err) {
+    console.warn('Saving pack failed, retrying with an in-memory copy of the media:', err);
+    error = err;
+    if (!isQuotaError(err)) {
+      try {
+        data = await inMemoryCopy(data);
+        await withStore('readwrite', (s) => s.put(data));
+        error = null;
+      } catch (retryErr) {
+        error = retryErr;
+      }
+    }
+  }
+  if (!error) {
     memoryFallback.delete(data.id);
     return { persisted: true };
-  } catch (err) {
-    console.warn('Pack kept only for this session:', err);
-    memoryFallback.set(data.id, data);
-    const quota = err?.name === 'QuotaExceededError' || /quota/i.test(err?.message || '');
-    return {
-      persisted: false,
-      reason: quota
-        ? 'Браузеру не хватило места для видео (часто так бывает в режиме инкогнито).'
-        : 'Браузер не дал сохранить данные.',
-    };
   }
+  console.warn('Pack kept only for this session:', error);
+  memoryFallback.set(data.id, data);
+  return { persisted: false, reason: failureReason(error) };
 }
 
 export function storageWarning(result) {
