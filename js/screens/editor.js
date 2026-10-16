@@ -1,7 +1,7 @@
 import { h, mount, toast, downloadBlob } from '../ui.js';
 import { Timeline } from '../timeline.js';
 import { parseSubtitles, toSrt, formatTimecode } from '../subtitles.js';
-import { decodeMedia, videoUrlFor, saveCustomPack, exportVideoPack, newId } from '../packs.js';
+import { decodeMedia, videoUrlFor, saveCustomPack, exportVideoPack, newId, storageWarning } from '../packs.js';
 
 const DEFAULT_CUE = 2;     // seconds, for cues created by key/button
 const LONG_CUE = 20;       // warn above this
@@ -274,9 +274,10 @@ export function editorScreen(nav, existing = null) {
   async function save() {
     if (!validate()) return;
     pack.name = pack.name.trim();
-    await saveCustomPack(pack);
+    const result = await saveCustomPack(pack);
     saved = true;
-    toast('Пак сохранён — его можно выбрать в игре');
+    if (result.persisted) toast('Пак сохранён — его можно выбрать в игре');
+    else toast(storageWarning(result), { error: true, ms: 9000 });
   }
 
   async function exportPack() {

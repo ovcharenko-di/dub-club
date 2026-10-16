@@ -184,7 +184,8 @@ async function withStore(mode, fn) {
     const tx = db.transaction(STORE, mode);
     const req = fn(tx.objectStore(STORE));
     tx.oncomplete = () => { db.close(); resolve(req?.result); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
+    // A quota failure aborts the transaction without an error event.
+    tx.onabort = () => { db.close(); reject(tx.error || new DOMException('Transaction aborted', 'AbortError')); };
   });
 }
 
@@ -215,22 +216,44 @@ function withLines(pack) {
 }
 
 export async function listCustomPacks() {
+  let stored = [];
   try {
-    return ((await withStore('readonly', (s) => s.getAll())) || []).map(withLines);
+    stored = (await withStore('readonly', (s) => s.getAll())) || [];
   } catch (err) {
-    console.warn('Using in-memory packs:', err);
-    return [...memoryFallback.values()].map(withLines);
+    console.warn('Could not read stored packs:', err);
   }
+  // Packs that failed to persist still live in memory for this session.
+  const byId = new Map(stored.map((p) => [p.id, p]));
+  for (const p of memoryFallback.values()) byId.set(p.id, p);
+  return [...byId.values()].map(withLines);
 }
 
+/**
+ * Save a pack. Returns { persisted: true } when it reached IndexedDB, or
+ * { persisted: false, reason } when it is only kept until the page reloads.
+ */
 export async function saveCustomPack(pack) {
   const data = serializable(pack);
   try {
+    navigator.storage?.persist?.().catch(() => {});
     await withStore('readwrite', (s) => s.put(data));
+    memoryFallback.delete(data.id);
+    return { persisted: true };
   } catch (err) {
-    console.warn('Pack saved only for this session:', err);
+    console.warn('Pack kept only for this session:', err);
     memoryFallback.set(data.id, data);
+    const quota = err?.name === 'QuotaExceededError' || /quota/i.test(err?.message || '');
+    return {
+      persisted: false,
+      reason: quota
+        ? 'Браузеру не хватило места для видео (часто так бывает в режиме инкогнито).'
+        : 'Браузер не дал сохранить данные.',
+    };
   }
+}
+
+export function storageWarning(result) {
+  return `${result.reason} Пак доступен до перезагрузки страницы — скачайте файл пака, чтобы не потерять его.`;
 }
 
 export async function deleteCustomPack(id) {
@@ -296,6 +319,6 @@ export async function importVideoPack(file) {
       .filter((c) => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end > c.start)
       .map((c) => ({ id: newId(), start: c.start, end: c.end, text: String(c.text || '') })),
   };
-  await saveCustomPack(pack);
+  pack.saveResult = await saveCustomPack(pack);
   return pack;
 }
