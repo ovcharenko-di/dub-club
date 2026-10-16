@@ -1,7 +1,7 @@
 import { h, mount, toast, downloadBlob } from '../ui.js';
 import { Timeline } from '../timeline.js';
 import { parseSubtitles, toSrt, formatTimecode } from '../subtitles.js';
-import { decodeMedia, videoUrlFor, saveCustomPack, exportVideoPack, newId, storageWarning } from '../packs.js';
+import { decodeMedia, videoUrlFor, saveCustomPack, exportVideoPack, newId, storageWarning, MAX_FULL_DECODE } from '../packs.js';
 
 const DEFAULT_CUE = 2;     // seconds, for cues created by key/button
 const LONG_CUE = 20;       // warn above this
@@ -367,6 +367,11 @@ export function editorScreen(nav, existing = null) {
       timeline.dirty = true;
     }, { once: true });
     video.addEventListener('error', () => toast('Браузер не может воспроизвести это видео', { error: true }), { once: true });
+    if (pack.video.size > MAX_FULL_DECODE) {
+      timeline.setMessage('Видео большое — волна звука не строится, но реплики размечать можно');
+      renderList(true);
+      return;
+    }
     decodeMedia(pack.video, { lowRate: true })
       .then((buffer) => {
         audioDuration = buffer.duration;
@@ -375,7 +380,7 @@ export function editorScreen(nav, existing = null) {
       })
       .catch((err) => {
         console.error(err);
-        toast('Не удалось извлечь звук из видео — в игре такие реплики работать не будут', { error: true, ms: 6000 });
+        timeline.setMessage('Волну звука построить не удалось — реплики размечать можно');
       });
     renderList(true);
   }

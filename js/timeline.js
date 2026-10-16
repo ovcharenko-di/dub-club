@@ -54,6 +54,11 @@ export class Timeline {
     this.dirty = true;
   }
 
+  setMessage(text) {
+    this.message = text;
+    this.dirty = true;
+  }
+
   get width() { return this.canvas.clientWidth; }
   get viewLength() { return this.width / this.pxPerSec; }
 
@@ -221,7 +226,7 @@ export class Timeline {
       g.globalAlpha = 1;
     } else {
       g.fillStyle = color('--muted');
-      g.fillText('Загрузка звуковой дорожки…', 8, mid - 6);
+      g.fillText(this.message || 'Загрузка звуковой дорожки…', 8, mid - 6);
     }
 
     // Cues
