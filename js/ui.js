@@ -96,8 +96,7 @@ function peaksFor(buffer, columns) {
   return peaks;
 }
 
-/** Draw a waveform with the part before `progress` (0..1) highlighted. */
-export function drawWave(canvas, buffer, progress = 0, { live = false } = {}) {
+function prepareCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(1, Math.round(canvas.clientWidth * dpr));
   const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
@@ -105,17 +104,52 @@ export function drawWave(canvas, buffer, progress = 0, { live = false } = {}) {
   if (canvas.height !== height) canvas.height = height;
   const g = canvas.getContext('2d');
   g.clearRect(0, 0, width, height);
+  return { g, width, height, dpr };
+}
+
+/**
+ * Draw a waveform with the part before `progress` (0..1) highlighted.
+ * `take` is a live recording on top: [{ at: 0..1 of the buffer, level }], drawn on the same bar grid.
+ */
+export function drawWave(canvas, buffer, progress = 0, { live = false, take = null } = {}) {
+  const { g, width, height, dpr } = prepareCanvas(canvas);
   if (!buffer) return;
   const css = getComputedStyle(document.documentElement);
   const done = live ? css.getPropertyValue('--accent-2').trim() : css.getPropertyValue('--wave-progress').trim();
-  paintWave(g, buffer, progress, { x: 0, y: 0, width, height, scale: dpr, base: css.getPropertyValue('--wave').trim(), done });
+  const box = { x: 0, y: 0, width, height, scale: dpr };
+  paintWave(g, buffer, progress, { ...box, base: css.getPropertyValue('--wave').trim(), done });
+  if (take?.length) paintLevels(g, take, { ...box, color: css.getPropertyValue('--wave-take').trim() });
+}
+
+function barGrid(width, scale) {
+  const bar = Math.max(2, Math.round(3 * scale));
+  const gap = Math.max(1, Math.round(2 * scale));
+  return { bar, gap, columns: Math.floor(width / (bar + gap)) };
+}
+
+function paintLevels(g, take, { x, y, width, height, scale, color }) {
+  const { bar, gap, columns } = barGrid(width, scale);
+  const peaks = new Float32Array(columns);
+  // Normalised like the original's peaks; the floor keeps room noise from filling the bars.
+  let max = 0.02;
+  for (const { at, level } of take) {
+    const c = Math.floor(at * columns);
+    if (c < 0 || c >= columns) continue;
+    if (level > peaks[c]) peaks[c] = level;
+    if (level > max) max = level;
+  }
+  const mid = y + height / 2;
+  g.fillStyle = color;
+  for (let c = 0; c < columns; c++) {
+    if (!peaks[c]) continue;
+    const amp = Math.max(0.03, peaks[c] / max) * (height * 0.42);
+    g.fillRect(x + c * (bar + gap), mid - amp, bar, amp * 2);
+  }
 }
 
 /** Paint waveform bars into a rectangle of an existing 2D context. */
 export function paintWave(g, buffer, progress, { x, y, width, height, scale = 1, base, done }) {
-  const bar = Math.max(2, Math.round(3 * scale));
-  const gap = Math.max(1, Math.round(2 * scale));
-  const columns = Math.floor(width / (bar + gap));
+  const { bar, gap, columns } = barGrid(width, scale);
   const peaks = peaksFor(buffer, columns);
   const mid = y + height / 2;
   for (let c = 0; c < columns; c++) {

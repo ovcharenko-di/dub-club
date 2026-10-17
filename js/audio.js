@@ -106,7 +106,7 @@ export function beep(freq = 660, duration = 0.15) {
 }
 
 /** Drive a level meter element from a mic stream. Returns a stop function. */
-export function startMeter(stream, barEl) {
+export function startMeter(stream, barEl, onLevel) {
   const c = audioCtx();
   const src = c.createMediaStreamSource(stream);
   const analyser = c.createAnalyser();
@@ -120,6 +120,7 @@ export function startMeter(stream, barEl) {
     for (const v of data) sum += v * v;
     const rms = Math.sqrt(sum / data.length);
     barEl.style.width = `${Math.min(100, rms * 400)}%`;
+    onLevel?.(rms);
     raf = requestAnimationFrame(tick);
   };
   tick();

@@ -98,7 +98,8 @@ export function gameScreen(nav, { pack, players }) {
 
       const recorder = new Recorder(stream);
       await recorder.start();
-      const stopMeter = startMeter(stream, meterBar);
+      let micLevel = 0;
+      const stopMeter = startMeter(stream, meterBar, (rms) => { micLevel = rms; });
       meter.classList.remove('hidden');
       doneBtn.classList.remove('hidden');
       status.textContent = '🔴 Запись… Повторяйте!';
@@ -110,7 +111,7 @@ export function gameScreen(nav, { pack, players }) {
       let aborted = false;
       cancelRecording = () => { aborted = true; finishEarly(); };
 
-      await Promise.race([stage.playSilent(length), early]);
+      await Promise.race([stage.playSilent(length, () => micLevel), early]);
       stage.stop();
       stopMeter();
       const blob = await recorder.stop();

@@ -36,6 +36,41 @@ test('a game plays every line in pack order for each player', { timeout: 90_000 
   await page.close();
 });
 
+test('the take is drawn over the original wave while recording', { timeout: 60_000 }, async () => {
+  const { page, errors } = await openApp(browser, server.url);
+  const id = await addTonePack(page, 'Тоны', [220], 1.5);
+  await startGame(page, id, 1);
+  await page.waitForSelector('.line-title');
+  const takePixels = () => page.evaluate(() => {
+    // Read a copy: repeated getImageData on the live canvas makes Chrome warn in the console.
+    const canvas = document.querySelector('.stage canvas');
+    const copy = Object.assign(document.createElement('canvas'), { width: canvas.width, height: canvas.height });
+    const g = copy.getContext('2d');
+    g.drawImage(canvas, 0, 0);
+    const { data } = g.getImageData(0, 0, copy.width, copy.height);
+    let n = 0;
+    // --wave-take is teal: green well above red, unlike the original's violet.
+    for (let i = 0; i < data.length; i += 4) if (data[i + 3] && data[i + 1] > data[i] + 40) n++;
+    return n;
+  });
+  assert.equal(await takePixels(), 0, 'no take before recording');
+  await page.click('button.rec');
+  await page.waitForSelector('button:has-text("Готово"):not(.hidden)');
+  let early = 0;
+  for (let i = 0; i < 50 && !early; i++) {
+    early = await takePixels();
+    if (!early) await page.waitForTimeout(100);
+  }
+  assert.ok(early > 0, 'take appears while recording');
+  // The take grows with the recording.
+  await page.waitForTimeout(600);
+  assert.ok(await takePixels() > early, 'take keeps growing');
+  await page.click('button:has-text("Готово")');
+  await page.waitForSelector('.board');
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test('the last take leads straight to the final board', { timeout: 60_000 }, async () => {
   const { page, errors } = await openApp(browser, server.url);
   const id = await addTonePack(page, 'Тоны', [220]);

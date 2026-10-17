@@ -7,14 +7,16 @@ import { h, drawWave } from './ui.js';
  */
 export function createStage(prep) {
   const badge = h('div', { class: 'badge' }, prep.videoUrl ? '🎬 Видео' : '🔊 Аудио');
-  const canvas = h('canvas');
   const video = prep.videoUrl
     ? h('video', { src: prep.videoUrl, playsInline: true, preload: 'auto', muted: true })
     : null;
+  // Video lines get the waveform as a strip under the picture, so the take can be laid over it too.
+  const canvas = h('canvas', { class: video ? 'wave-strip' : null });
   const progress = h('div');
   const el = h('div', { class: 'stack' },
     h('div', { class: 'stage' }, video || canvas, badge,
       prep.text && h('div', { class: 'subtitle' }, prep.text)),
+    video && canvas,
     h('div', { class: 'progress' }, progress),
   );
 
@@ -23,10 +25,12 @@ export function createStage(prep) {
   let source = null;
   let token = 0;
   let waveBuffer = prep.buffer;
+  // Mic levels of the current recording, placed on the original's time axis.
+  let take = null;
 
-  const setProgress = (p, live = false) => {
+  const setProgress = (p, live = false, waveP = p) => {
     progress.style.width = `${Math.min(100, p * 100)}%`;
-    if (!video) drawWave(canvas, waveBuffer, p, { live });
+    drawWave(canvas, waveBuffer, waveP, { live, take });
   };
 
   function stop() {
@@ -37,7 +41,7 @@ export function createStage(prep) {
     if (video) video.pause();
   }
 
-  async function run({ audio, videoMuted, live = false, length = duration }) {
+  async function run({ audio, videoMuted, live = false, length = duration, level = null }) {
     stop();
     const my = ++token;
     if (video) {
@@ -54,7 +58,9 @@ export function createStage(prep) {
         if (my !== token) return resolve();
         const elapsed = c.currentTime - t0;
         if (video && video.currentTime >= prep.end) video.pause();
-        setProgress(elapsed / length, live);
+        if (level) take.push({ at: elapsed / waveBuffer.duration, level: level() });
+        // While recording, the growing take shows progress; a highlight under it would muddy its colour.
+        setProgress(elapsed / length, live, level ? 0 : elapsed / length);
         if (elapsed >= length) return resolve();
         raf = requestAnimationFrame(tick);
       };
@@ -62,7 +68,7 @@ export function createStage(prep) {
     });
     if (my === token) {
       if (video) video.pause();
-      setProgress(1, live);
+      setProgress(1, live, level ? 0 : 1);
     }
   }
 
@@ -77,14 +83,16 @@ export function createStage(prep) {
       waveBuffer = prep.buffer;
       return run({ audio: video ? null : prep.buffer, videoMuted: false });
     },
-    /** Run the visuals without sound (while the player records). */
-    playSilent: (length) => {
+    /** Run the visuals without sound (while the player records); `level()` is the mic level to draw over the wave. */
+    playSilent: (length, level = null) => {
       waveBuffer = prep.buffer;
-      return run({ audio: null, videoMuted: true, live: true, length });
+      take = level ? [] : null;
+      return run({ audio: null, videoMuted: true, live: true, length, level });
     },
     /** Play a recorded take (over the muted video, if any). */
     playTake: (buffer) => {
       waveBuffer = buffer;
+      take = null;
       return run({ audio: buffer, videoMuted: true, length: buffer.duration });
     },
   };
