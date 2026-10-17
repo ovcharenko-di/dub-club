@@ -163,18 +163,6 @@ label.inline { flex-direction: row; align-items: center; gap: 10px; }
 .countdown span { font-size: 9rem; font-weight: 800; color: var(--accent); animation: pop 0.8s ease-out; }
 @keyframes pop { from { transform: scale(1.8); opacity: 0; } 40% { opacity: 1; } to { transform: scale(1); } }
 
-/* Judges */
-.judges { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
-.judge { text-align: center; opacity: 0.25; transition: opacity 0.3s ease, transform 0.3s ease; }
-.judge.revealed { opacity: 1; transform: translateY(-4px); }
-.judge .avatar { font-size: 3rem; }
-.judge .name { font-weight: 700; }
-.judge .spec { color: var(--muted); font-size: 0.85rem; }
-.judge .score { font-size: 3rem; font-weight: 800; color: var(--accent); margin: 6px 0; font-variant-numeric: tabular-nums; }
-.judge .comment { font-style: italic; min-height: 3em; }
-.total { text-align: center; font-size: 1.4rem; }
-.total b { color: var(--accent); font-size: 2.2rem; }
-
 /* Scoreboard */
 .board { display: flex; flex-direction: column; gap: 10px; }
 .board-row {
@@ -250,7 +238,14 @@ textarea {
 
 /* Final reels */
 .stage canvas.reel { height: auto; aspect-ratio: 16 / 9; }
-.board-row { grid-template-columns: 40px 1fr auto auto; }
+.reel-layout { display: grid; grid-template-columns: 1fr 200px; gap: 12px; align-items: start; }
+.tracks { display: flex; flex-direction: column; gap: 8px; }
+.tracks .track { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; text-align: left; }
+.tracks .track .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tracks .track .pts { font-weight: 800; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .reel-layout { grid-template-columns: 1fr; }
+}
 .judge-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .judge-total {
   display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;

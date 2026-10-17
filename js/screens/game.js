@@ -1,4 +1,4 @@
-import { h, mount, toast, countdown, sleep, downloadBlob } from '../ui.js';
+import { h, mount, toast, countdown, downloadBlob } from '../ui.js';
 import { getMic, micErrorMessage, Recorder, decode, startMeter } from '../audio.js';
 import { prepareLine } from '../packs.js';
 import { extractFeatures, compare } from '../analysis.js';
@@ -133,7 +133,7 @@ export function gameScreen(nav, { pack, players }) {
     }
   }
 
-  // Score every take up front so the results stay correct whatever happens during the reveal.
+  // Score every take up front so the results stay correct whatever happens on the final screen.
   function judgeAll() {
     for (const take of state.takes) {
       take.verdicts = judge(take.metrics);
@@ -141,65 +141,7 @@ export function gameScreen(nav, { pack, players }) {
       take.player.total = Math.round((take.player.total + take.total) * 10) / 10;
       take.player.rounds.push({ title: take.line.title, score: take.total });
     }
-    if (state.takes.length) verdictScreen(0);
-    else resultsScreen();
-  }
-
-  function verdictScreen(index) {
-    const { player, round, prep, takeBuffer, verdicts, total } = state.takes[index];
-    const last = index === state.takes.length - 1;
-    const stage = createStage(prep);
-    const cards = verdicts.map((v) => {
-      const scoreEl = h('div', { class: 'score' }, '?');
-      const commentEl = h('div', { class: 'comment' });
-      const el = h('div', { class: 'card judge' },
-        h('div', { class: 'avatar' }, v.judge.avatar),
-        h('div', { class: 'name' }, v.judge.name),
-        h('div', { class: 'spec' }, v.judge.specialty),
-        scoreEl, commentEl);
-      return { v, el, scoreEl, commentEl };
-    });
-    const totalEl = h('div', { class: 'total hidden' }, 'Итого за раунд: ', h('b', null, total.toFixed(1)), ' / 30');
-    const nextBtn = h('button', {
-      class: 'primary big',
-      disabled: true,
-      onclick: () => (last ? resultsScreen() : verdictScreen(index + 1)),
-    }, last ? 'К итогам 🏆' : 'Дальше →');
-    let alive = true;
-
-    mount(h('section', { class: 'screen' },
-      header(`Вердикт ${index + 1}/${state.takes.length}`, player, round),
-      h('div', { class: 'judges' }, cards.map((c) => c.el)),
-      totalEl,
-      h('div', { class: 'card stack' },
-        h('h3', null, 'Сравнить'),
-        stage.el,
-        h('div', { class: 'row' },
-          h('button', { onclick: () => stage.playOriginal() }, '▶ Оригинал'),
-          h('button', { onclick: () => stage.playTake(takeBuffer) }, '▶ Ваш дубль'))),
-      h('div', { class: 'row' }, nextBtn),
-    ), () => { alive = false; stage.stop(); });
-
-    (async () => {
-      for (const c of cards) {
-        await sleep(650);
-        if (!alive) return;
-        c.el.classList.add('revealed');
-        await countUp(c.scoreEl, c.v.score);
-        c.commentEl.textContent = `«${c.v.comment}»`;
-      }
-      await sleep(300);
-      totalEl.classList.remove('hidden');
-      nextBtn.disabled = false;
-    })();
-  }
-
-  async function countUp(el, target) {
-    const steps = 14;
-    for (let i = 1; i <= steps; i++) {
-      el.textContent = ((target * i) / steps).toFixed(1);
-      await sleep(35);
-    }
+    resultsScreen();
   }
 
   function next() {
@@ -219,45 +161,48 @@ export function gameScreen(nav, { pack, players }) {
       h('button', { class: 'primary big', onclick: turnScreen }, `Раунд ${state.round + 1} ▶`)));
   }
 
-  function board(onWatch) {
-    const ranked = [...state.players].sort((a, b) => b.total - a.total);
+  function board(ranked) {
     const medals = ['🥇', '🥈', '🥉', '🎖️'];
     return h('div', { class: 'board' }, ranked.map((p, i) =>
       h('div', { class: `board-row${i === 0 ? ' winner' : ''}` },
         h('span', { class: 'place' }, medals[i]),
         h('span', null, h('span', { class: 'dot', style: { background: p.color } }), ' ', h('b', null, p.name),
           h('div', { class: 'muted small' }, p.rounds.map((r) => r.score.toFixed(1)).join(' · '))),
-        h('span', { class: 'pts' }, p.total.toFixed(1)),
-        h('button', { class: 'watch', disabled: !p.rounds.length, onclick: () => onWatch(p) }, '▶ Дубли'))));
+        h('span', { class: 'pts' }, p.total.toFixed(1)))));
   }
 
+  // One reel for the whole table: the footage is the same, the picker chooses whose takes play over it.
   function resultsScreen() {
     const ranked = [...state.players].sort((a, b) => b.total - a.total);
     const max = rounds * 30;
     const winner = ranked[0];
+    const takesOf = (player) => state.takes.filter((t) => t.player === player);
     const reel = createReel();
-    const reelTitle = h('h3');
     const judgesEl = h('div', { class: 'judge-totals' });
-    const replayBtn = h('button', { class: 'primary' }, '▶ Смотреть');
+    const playBtn = h('button', { class: 'primary' }, '▶ Смотреть');
     const stopBtn = h('button', { class: 'hidden', onclick: () => reel.stop() }, '⏹ Стоп');
     const downloadBtn = h('button', null, '⬇ Скачать видео');
     const status = h('p', { class: 'muted small' });
-    const reelCard = h('div', { class: 'card stack hidden' },
-      reelTitle, judgesEl, reel.el,
-      h('div', { class: 'row' }, replayBtn, stopBtn, downloadBtn),
-      status);
+    const tracks = ranked.map((p) => h('button', {
+      class: 'track',
+      disabled: !takesOf(p).length,
+      onclick: () => pick(p),
+    }, h('span', { class: 'dot', style: { background: p.color } }), h('span', { class: 'name' }, p.name),
+    h('span', { class: 'pts' }, p.total.toFixed(1))));
 
     let current = null;
-    const setBusy = (busy) => {
-      replayBtn.disabled = downloadBtn.disabled = busy;
-      for (const btn of document.querySelectorAll('.board .watch')) btn.disabled = busy;
-      stopBtn.classList.toggle('hidden', !busy);
+    let playing = false, recording = false;
+    let run = 0;
+    const setBusy = () => {
+      playBtn.disabled = downloadBtn.disabled = playing;
+      stopBtn.classList.toggle('hidden', !playing);
+      // Switching tracks restarts playback, but a recording must not be cut short.
+      tracks.forEach((btn, i) => { btn.disabled = recording || !takesOf(ranked[i]).length; });
     };
-    const takesOf = (player) => state.takes.filter((t) => t.player === player);
 
-    async function watch(player, { record = false } = {}) {
+    function pick(player) {
       current = player;
-      reelTitle.replaceChildren(h('span', { class: 'dot', style: { background: player.color } }), ' ', player.name);
+      tracks.forEach((btn, i) => btn.classList.toggle('selected', ranked[i] === player));
       judgesEl.replaceChildren(...JUDGES.map((j, i) => {
         const sum = takesOf(player).reduce((acc, t) => acc + t.verdicts[i].score, 0);
         return h('div', { class: 'judge-total' },
@@ -265,10 +210,17 @@ export function gameScreen(nav, { pack, players }) {
           h('span', null, h('b', null, j.name), h('div', { class: 'muted small' }, j.specialty)),
           h('span', { class: 'pts' }, sum.toFixed(1)));
       }));
-      reelCard.classList.remove('hidden');
-      reelCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (playing) watch();
+    }
+
+    async function watch({ record = false } = {}) {
+      const player = current;
+      // reel.play() stops the previous run, which then settles; only the latest run may reset the buttons.
+      const my = ++run;
+      playing = true;
+      recording = record;
+      setBusy();
       status.textContent = record ? '⏺ Собираем видео… Не переключайте вкладку.' : '';
-      setBusy(true);
       try {
         const blob = await reel.play(takesOf(player), { record });
         if (blob) {
@@ -283,28 +235,41 @@ export function gameScreen(nav, { pack, players }) {
         toast(`Не удалось ${record ? 'собрать видео' : 'проиграть дубли'}: ${err?.message || err}`, { error: true });
         status.textContent = '';
       }
-      setBusy(false);
+      if (my !== run) return;
+      playing = recording = false;
+      setBusy();
     }
 
-    replayBtn.onclick = () => watch(current);
+    playBtn.onclick = () => watch();
     downloadBtn.onclick = () => {
       if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
         return toast('Этот браузер не умеет записывать видео. Попробуйте Chrome или Firefox.', { error: true });
       }
-      watch(current, { record: true });
+      watch({ record: true });
     };
 
+    const hasTakes = state.takes.length > 0;
     mount(h('section', { class: 'screen' },
       h('div', { class: 'hero' },
         h('div', { class: 'logo' }, '🏆'),
         h('h1', null, state.players.length > 1 ? `${winner.name} побеждает!` : 'Финал'),
         h('p', { class: 'muted' }, `${winner.total.toFixed(1)} из ${max} очков`)),
-      board((p) => watch(p)),
-      reelCard,
+      board(ranked),
+      hasTakes && h('div', { class: 'card stack' },
+        h('h3', null, 'Дубли'),
+        h('div', { class: 'reel-layout' },
+          reel.el,
+          h('div', { class: 'tracks' },
+            h('div', { class: 'muted small' }, 'Дорожка поверх видео'),
+            tracks)),
+        judgesEl,
+        h('div', { class: 'row' }, playBtn, stopBtn, downloadBtn),
+        status),
       h('div', { class: 'row' },
         h('button', { class: 'primary big', onclick: () => gameScreen(nav, { pack, players }) }, '↻ Ещё раз'),
         h('button', { class: 'big', onclick: nav.menu }, 'В меню'))),
     () => reel.stop());
+    if (hasTakes) pick(ranked.find((p) => takesOf(p).length));
   }
 
   turnScreen();
