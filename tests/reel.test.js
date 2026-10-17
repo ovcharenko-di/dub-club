@@ -125,10 +125,9 @@ test('recording a reel yields a video file; stopping it yields nothing', async (
     return { type: blob.type, seconds, audio, width: video.videoWidth, height: video.videoHeight, stopped: await pending };
   });
   assert.match(type, /^video\//);
-  // The 0.5 s take plus a 0.5 s tail, after the first frame held while the encoder starts
-  // (up to ~1.5 s for the first recording in a page). The audio track ends with the last sound,
-  // so the length is taken from the video track.
-  assert.ok(seconds > 0.9 && seconds < 3.2, `video track lasts ${seconds} s`);
+  // The 0.5 s take plus a 0.5 s tail. This is the first recording in the page, with a cold
+  // encoder: its start-up must not get into the file as a frozen first frame.
+  assert.ok(seconds > 0.8 && seconds < 1.4, `video track lasts ${seconds} s`);
   assert.ok(audio > 0.3, `audio track lasts ${audio} s`);
   assert.deepEqual([width, height], [1280, 720]);
   assert.equal(stopped, null);
@@ -221,6 +220,34 @@ test('the original sound stays and is ducked while a line lasts', { timeout: 60_
   const quiet = (quietTo - quietFrom) * 0.05;
   assert.ok(first >= 0 && quietFrom > first && quietTo > quietFrom, `RMS: ${rms.map((v) => v.toFixed(2)).join(' ')}`);
   assert.ok(quiet > 0.7 && quiet < 1.4, `ducked for ${quiet} s; RMS: ${rms.map((v) => v.toFixed(2)).join(' ')}`);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test('the voice level boosts the takes, also in the recorded video', { timeout: 60_000 }, async () => {
+  const { page, errors } = await openReel();
+  const [plain, boosted] = await page.evaluate(async () => {
+    const { decode } = await import('/js/audio.js');
+    // A quiet take: the test tone at a sixth of its amplitude.
+    const take = window.makeTake(0.8);
+    take.takeBuffer.getChannelData(0).forEach((v, i, d) => { d[i] = v / 6; });
+    const peakRms = async (level) => {
+      window.reel.setVoiceLevel(level);
+      const buf = await decode(await window.reel.play([take], { record: true }));
+      const data = buf.getChannelData(0);
+      const step = Math.round(buf.sampleRate * 0.05);
+      let peak = 0;
+      for (let i = 0; i + step <= data.length; i += step) {
+        let sum = 0;
+        for (let j = i; j < i + step; j++) sum += data[j] * data[j];
+        peak = Math.max(peak, Math.sqrt(sum / step));
+      }
+      return peak;
+    };
+    return [await peakRms(1), await peakRms(3)];
+  });
+  assert.ok(plain > 0.01, `the take is heard (RMS ${plain})`);
+  assert.ok(boosted / plain > 2.4 && boosted / plain < 3.6, `level 3 gives ×${(boosted / plain).toFixed(2)}`);
   assert.deepEqual(errors, []);
   await page.close();
 });

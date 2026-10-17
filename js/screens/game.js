@@ -4,9 +4,11 @@ import { prepareLine } from '../packs.js';
 import { extractFeatures, compare } from '../analysis.js';
 import { judge, JUDGES } from '../judges.js';
 import { createStage } from '../stage.js';
-import { createReel } from '../reel.js';
+import { createReel, MAX_VOICE_LEVEL } from '../reel.js';
 
 const EXTRA_RECORD_TIME = 1.2; // seconds on top of the line length
+// Kept between games: a quiet mic stays quiet.
+let voiceLevel = 1;
 
 export function gameScreen(nav, { pack, players }) {
   // One round per line, in pack order: a game always plays the whole pack.
@@ -183,6 +185,14 @@ export function gameScreen(nav, { pack, players }) {
     const stopBtn = h('button', { class: 'hidden', onclick: () => reel.stop() }, '⏹ Стоп');
     const downloadBtn = h('button', null, '⬇ Скачать видео');
     const status = h('p', { class: 'muted small' });
+    reel.setVoiceLevel(voiceLevel);
+    const levelText = h('span', { class: 'mono' });
+    const showLevel = () => { levelText.textContent = `${Math.round(voiceLevel * 100)}%`; };
+    const levelInput = h('input', {
+      type: 'range', min: 0, max: MAX_VOICE_LEVEL, step: 0.1, value: voiceLevel,
+      oninput: () => { voiceLevel = Number(levelInput.value); reel.setVoiceLevel(voiceLevel); showLevel(); },
+    });
+    showLevel();
     const tracks = ranked.map((p) => h('button', {
       class: 'track',
       disabled: !takesOf(p).length,
@@ -262,6 +272,7 @@ export function gameScreen(nav, { pack, players }) {
           h('div', { class: 'tracks' },
             h('div', { class: 'muted small' }, 'Дорожка поверх видео'),
             tracks)),
+        h('label', { class: 'voice-level' }, '🎙 Громкость голоса', levelInput, levelText),
         judgesEl,
         h('div', { class: 'row' }, playBtn, stopBtn, downloadBtn),
         status),

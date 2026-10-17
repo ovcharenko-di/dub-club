@@ -13,6 +13,7 @@ const DUCK_LEVEL = 0.35;
 const VOICE_CUT_DB = -18;
 const VOICE_FREQ = 1000; // Hz, centre of the cut; with Q 0.5 it spans roughly 250 Hz..4 kHz
 const RAMP = 0.08; // s
+export const MAX_VOICE_LEVEL = 4; // a quiet mic needs a boost; the limiter keeps it from clipping
 
 /**
  * Splits takes into stretches of continuous footage. Lines of one video that follow each other
@@ -64,6 +65,8 @@ export function createReel() {
   let sources = [];
   let position = 0;
   let original = null;
+  let voiceLevel = 1;
+  let voiceGain = null; // of the current playback, so the level can change while it plays
 
   // Built on first use: createMediaElementSource can be called only once per element, after that
   // the element's sound goes only through the graph (and `muted` would silence it there too).
@@ -150,6 +153,17 @@ export function createReel() {
       recorder = new Recorder(stream, 'video', { videoBitsPerSecond: 4_000_000 });
     }
 
+    // Takes go through their own gain and a limiter: boosting a quiet take must not distort a loud one.
+    voiceGain = c.createGain();
+    voiceGain.gain.value = voiceLevel;
+    const limiter = c.createDynamicsCompressor();
+    limiter.threshold.value = -3;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.1;
+    voiceGain.connect(limiter).connect(out);
+
     const { segments, total } = buildTimeline(takes);
     const withOriginal = segments.some((seg) => seg.videoUrl);
     if (withOriginal) originalSound().level.connect(out);
@@ -201,7 +215,7 @@ export function createReel() {
         const skip = Math.max(0, local - offset);
         const source = c.createBufferSource();
         source.buffer = take.takeBuffer;
-        source.connect(out);
+        source.connect(voiceGain);
         source.start(t0 + Math.max(0, offset - local), skip, until - offset - skip);
         sources.push(source);
       }
@@ -219,15 +233,28 @@ export function createReel() {
     let finished = true, blob = null;
     try {
       if (recorder && playing.length) {
-        // A canvas stream may not start until a frame is drawn, and frames drawn before the start
-        // are lost. Show the first frame until the recorder runs, then play.
+        // A cold encoder takes a second or more to start, and the file would open with a frozen
+        // frame for that long. Warm it with a throwaway recorder, then start the real one paused
+        // and resume it exactly when playback begins. Meanwhile show the first frame: a canvas
+        // stream may not start until a frame is drawn.
         const first = playing[0];
+        const showFirst = (until) => hold(first, localOf(first), until);
         await seek(first, localOf(first)).catch((err) => console.warn('Reel: cannot seek video', err));
-        let started = false;
-        recorder.start().then(() => { started = true; });
+        const warm = new Recorder(recorder.stream, 'video', recorder.options);
+        const warmed = flag(warm.start());
         const giveUp = performance.now() + START_TIMEOUT;
-        finished = await hold(first, localOf(first), () => started || performance.now() > giveUp);
-        if (finished && !started) console.warn('Reel: recorder did not report start in time');
+        finished = await showFirst(() => warmed.done || performance.now() > giveUp);
+        if (!warmed.done) console.warn('Reel: recorder did not report start in time');
+        await warm.stop();
+        if (finished) {
+          recorder.start();
+          const paused = flag(new Promise((resolve) => { recorder.rec.onpause = resolve; }));
+          recorder.rec.pause();
+          const pauseBy = performance.now() + START_TIMEOUT;
+          finished = await showFirst(() => paused.done || performance.now() > pauseBy);
+          if (!paused.done) console.warn('Reel: recorder did not pause in time');
+          if (recorder.rec.state === 'paused') recorder.rec.resume();
+        }
       }
       for (const seg of playing) {
         if (!finished) break;
@@ -242,9 +269,22 @@ export function createReel() {
     return finished ? blob || null : null;
   }
 
+  // Loudness of the takes, 1 = as recorded; applies at once, including to a recording in progress.
+  function setVoiceLevel(level) {
+    voiceLevel = level;
+    voiceGain?.gain.setTargetAtTime(level, audioCtx().currentTime, 0.02);
+  }
+
   drawBlank(g, readColors());
   // `position` is where the reel is now, in seconds: switching tracks resumes from there.
-  return { el, play, stop, get position() { return position; } };
+  return { el, play, stop, setVoiceLevel, get position() { return position; } };
+}
+
+// A promise's state, readable in a frame loop.
+function flag(promise) {
+  const state = { done: false };
+  promise.then(() => { state.done = true; });
+  return state;
 }
 
 function readColors() {

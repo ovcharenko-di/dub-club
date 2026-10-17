@@ -47,6 +47,9 @@ test('the last take leads straight to the final board', { timeout: 60_000 }, asy
   assert.equal(await page.locator('text=/Вердикт/').count(), 0, 'no per-take verdict screens');
   assert.equal(await page.locator('.board-row').count(), 2);
   assert.equal(await page.locator('canvas.reel').count(), 1, 'one reel for all players');
+  // A quiet mic can be boosted right on the final screen.
+  await page.locator('.voice-level input[type=range]').fill('2.5');
+  assert.equal((await page.textContent('.voice-level .mono')).trim(), '250%');
   assert.deepEqual(errors, []);
   await page.close();
 });

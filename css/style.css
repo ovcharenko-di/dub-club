@@ -243,6 +243,8 @@ textarea {
 .tracks .track { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; text-align: left; }
 .tracks .track .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tracks .track .pts { font-weight: 800; font-variant-numeric: tabular-nums; }
+.voice-level { display: grid; grid-template-columns: auto 1fr 4em; align-items: center; gap: 10px; }
+.voice-level .mono { text-align: right; }
 @media (max-width: 640px) {
   .reel-layout { grid-template-columns: 1fr; }
 }
