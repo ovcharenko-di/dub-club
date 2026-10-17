@@ -62,6 +62,18 @@ test('the take is drawn over the original wave while recording', { timeout: 60_0
     if (!early) await page.waitForTimeout(100);
   }
   assert.ok(early > 0, 'take appears while recording');
+  // Progress is a playhead on the wave itself, not a separate bar.
+  assert.equal(await page.locator('.card .progress').count(), 0);
+  assert.ok(await page.evaluate(() => {
+    const canvas = document.querySelector('.stage canvas');
+    const copy = Object.assign(document.createElement('canvas'), { width: canvas.width, height: canvas.height });
+    const g = copy.getContext('2d');
+    g.drawImage(canvas, 0, 0);
+    // --text is near-white; nothing else on the wave is.
+    const { data } = g.getImageData(0, 0, copy.width, 1);
+    for (let i = 0; i < data.length; i += 4) if (data[i] > 220 && data[i + 1] > 220 && data[i + 2] > 220) return true;
+    return false;
+  }), 'playhead on the wave');
   // The take grows with the recording.
   await page.waitForTimeout(600);
   assert.ok(await takePixels() > early, 'take keeps growing');

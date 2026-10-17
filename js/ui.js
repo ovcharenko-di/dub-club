@@ -110,8 +110,9 @@ function prepareCanvas(canvas) {
 /**
  * Draw a waveform with the part before `progress` (0..1) highlighted.
  * `take` is a live recording on top: [{ at: 0..1 of the buffer, level }], drawn on the same bar grid.
+ * `playhead` (0..1) draws a vertical line at the current position.
  */
-export function drawWave(canvas, buffer, progress = 0, { live = false, take = null } = {}) {
+export function drawWave(canvas, buffer, progress = 0, { live = false, take = null, playhead = null } = {}) {
   const { g, width, height, dpr } = prepareCanvas(canvas);
   if (!buffer) return;
   const css = getComputedStyle(document.documentElement);
@@ -119,6 +120,11 @@ export function drawWave(canvas, buffer, progress = 0, { live = false, take = nu
   const box = { x: 0, y: 0, width, height, scale: dpr };
   paintWave(g, buffer, progress, { ...box, base: css.getPropertyValue('--wave').trim(), done });
   if (take?.length) paintLevels(g, take, { ...box, color: css.getPropertyValue('--wave-take').trim() });
+  if (playhead != null) {
+    const w = Math.max(2, Math.round(2 * dpr));
+    g.fillStyle = css.getPropertyValue('--text').trim();
+    g.fillRect(Math.round(playhead * width - w / 2), 0, w, height);
+  }
 }
 
 function barGrid(width, scale) {

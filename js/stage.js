@@ -12,12 +12,10 @@ export function createStage(prep) {
     : null;
   // Video lines get the waveform as a strip under the picture, so the take can be laid over it too.
   const canvas = h('canvas', { class: video ? 'wave-strip' : null });
-  const progress = h('div');
   const el = h('div', { class: 'stack' },
     h('div', { class: 'stage' }, video || canvas, badge,
       prep.text && h('div', { class: 'subtitle' }, prep.text)),
     video && canvas,
-    h('div', { class: 'progress' }, progress),
   );
 
   const duration = prep.end - prep.start;
@@ -28,9 +26,10 @@ export function createStage(prep) {
   // Mic levels of the current recording, placed on the original's time axis.
   let take = null;
 
-  const setProgress = (p, live = false, waveP = p) => {
-    progress.style.width = `${Math.min(100, p * 100)}%`;
-    drawWave(canvas, waveBuffer, waveP, { live, take });
+  // `p` is the position on the wave; while recording, the growing take shows what is done,
+  // and a highlight under it would muddy its colour, so only the playhead moves.
+  const setProgress = (p, { live = false, recording = false } = {}) => {
+    drawWave(canvas, waveBuffer, recording ? 0 : p, { live, take, playhead: p > 0 && p < 1 ? p : null });
   };
 
   function stop() {
@@ -59,8 +58,8 @@ export function createStage(prep) {
         const elapsed = c.currentTime - t0;
         if (video && video.currentTime >= prep.end) video.pause();
         if (level) take.push({ at: elapsed / waveBuffer.duration, level: level() });
-        // While recording, the growing take shows progress; a highlight under it would muddy its colour.
-        setProgress(elapsed / length, live, level ? 0 : elapsed / length);
+        // The wave moves at the line's own pace even when the recording runs longer.
+        setProgress(elapsed / waveBuffer.duration, { live, recording: !!level });
         if (elapsed >= length) return resolve();
         raf = requestAnimationFrame(tick);
       };
@@ -68,7 +67,7 @@ export function createStage(prep) {
     });
     if (my === token) {
       if (video) video.pause();
-      setProgress(1, live, level ? 0 : 1);
+      setProgress(1, { live, recording: !!level });
     }
   }
 
