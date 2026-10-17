@@ -196,7 +196,7 @@ export function gameScreen(nav, { pack, players }) {
     const setBusy = () => {
       playBtn.disabled = downloadBtn.disabled = playing;
       stopBtn.classList.toggle('hidden', !playing);
-      // Switching tracks restarts playback, but a recording must not be cut short.
+      // Switching tracks carries on from the same moment, but a recording must not be cut short.
       tracks.forEach((btn, i) => { btn.disabled = recording || !takesOf(ranked[i]).length; });
     };
 
@@ -210,10 +210,10 @@ export function gameScreen(nav, { pack, players }) {
           h('span', null, h('b', null, j.name), h('div', { class: 'muted small' }, j.specialty)),
           h('span', { class: 'pts' }, sum.toFixed(1)));
       }));
-      if (playing) watch();
+      if (playing) watch({ from: reel.position });
     }
 
-    async function watch({ record = false } = {}) {
+    async function watch({ record = false, from = 0 } = {}) {
       const player = current;
       // reel.play() stops the previous run, which then settles; only the latest run may reset the buttons.
       const my = ++run;
@@ -222,7 +222,7 @@ export function gameScreen(nav, { pack, players }) {
       setBusy();
       status.textContent = record ? '⏺ Собираем видео… Не переключайте вкладку.' : '';
       try {
-        const blob = await reel.play(takesOf(player), { record });
+        const blob = await reel.play(takesOf(player), { record, from });
         if (blob) {
           const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
           downloadBlob(blob, `dub-club-${player.name.replace(/[\\/:*?"<>|]+/g, '_')}.${ext}`);
