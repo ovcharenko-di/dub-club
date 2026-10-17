@@ -107,16 +107,20 @@ export function drawWave(canvas, buffer, progress = 0, { live = false } = {}) {
   g.clearRect(0, 0, width, height);
   if (!buffer) return;
   const css = getComputedStyle(document.documentElement);
-  const base = css.getPropertyValue('--wave').trim();
   const done = live ? css.getPropertyValue('--accent-2').trim() : css.getPropertyValue('--wave-progress').trim();
-  const bar = Math.max(2, Math.round(3 * dpr));
-  const gap = Math.max(1, Math.round(2 * dpr));
+  paintWave(g, buffer, progress, { x: 0, y: 0, width, height, scale: dpr, base: css.getPropertyValue('--wave').trim(), done });
+}
+
+/** Paint waveform bars into a rectangle of an existing 2D context. */
+export function paintWave(g, buffer, progress, { x, y, width, height, scale = 1, base, done }) {
+  const bar = Math.max(2, Math.round(3 * scale));
+  const gap = Math.max(1, Math.round(2 * scale));
   const columns = Math.floor(width / (bar + gap));
   const peaks = peaksFor(buffer, columns);
-  const mid = height / 2;
+  const mid = y + height / 2;
   for (let c = 0; c < columns; c++) {
     const amp = Math.max(0.03, peaks[c]) * (height * 0.42);
     g.fillStyle = c / columns < progress ? done : base;
-    g.fillRect(c * (bar + gap), mid - amp, bar, amp * 2);
+    g.fillRect(x + c * (bar + gap), mid - amp, bar, amp * 2);
   }
 }

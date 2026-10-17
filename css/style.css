@@ -247,3 +247,14 @@ textarea {
 .cue-num { font-weight: 700; color: var(--accent); min-width: 2.2em; }
 .time-input { width: 88px; padding: 6px 8px; }
 .warn { color: var(--accent-2); }
+
+/* Final reels */
+.stage canvas.reel { height: auto; aspect-ratio: 16 / 9; }
+.board-row { grid-template-columns: 40px 1fr auto auto; }
+.judge-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.judge-total {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px;
+}
+.judge-total .avatar { font-size: 1.8rem; }
+.judge-total .pts { font-size: 1.3rem; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }

@@ -1,9 +1,10 @@
-import { h, mount, toast, countdown, sleep } from '../ui.js';
+import { h, mount, toast, countdown, sleep, downloadBlob } from '../ui.js';
 import { getMic, micErrorMessage, Recorder, decode, startMeter } from '../audio.js';
 import { prepareLine } from '../packs.js';
 import { extractFeatures, compare } from '../analysis.js';
-import { judge } from '../judges.js';
+import { judge, JUDGES } from '../judges.js';
 import { createStage } from '../stage.js';
+import { createReel } from '../reel.js';
 
 const EXTRA_RECORD_TIME = 1.2; // seconds on top of the line length
 
@@ -218,7 +219,7 @@ export function gameScreen(nav, { pack, players }) {
       h('button', { class: 'primary big', onclick: turnScreen }, `Раунд ${state.round + 1} ▶`)));
   }
 
-  function board() {
+  function board(onWatch) {
     const ranked = [...state.players].sort((a, b) => b.total - a.total);
     const medals = ['🥇', '🥈', '🥉', '🎖️'];
     return h('div', { class: 'board' }, ranked.map((p, i) =>
@@ -226,22 +227,84 @@ export function gameScreen(nav, { pack, players }) {
         h('span', { class: 'place' }, medals[i]),
         h('span', null, h('span', { class: 'dot', style: { background: p.color } }), ' ', h('b', null, p.name),
           h('div', { class: 'muted small' }, p.rounds.map((r) => r.score.toFixed(1)).join(' · '))),
-        h('span', { class: 'pts' }, p.total.toFixed(1)))));
+        h('span', { class: 'pts' }, p.total.toFixed(1)),
+        h('button', { class: 'watch', disabled: !p.rounds.length, onclick: () => onWatch(p) }, '▶ Дубли'))));
   }
 
   function resultsScreen() {
     const ranked = [...state.players].sort((a, b) => b.total - a.total);
     const max = rounds * 30;
     const winner = ranked[0];
+    const reel = createReel();
+    const reelTitle = h('h3');
+    const judgesEl = h('div', { class: 'judge-totals' });
+    const replayBtn = h('button', { class: 'primary' }, '▶ Смотреть');
+    const stopBtn = h('button', { class: 'hidden', onclick: () => reel.stop() }, '⏹ Стоп');
+    const downloadBtn = h('button', null, '⬇ Скачать видео');
+    const status = h('p', { class: 'muted small' });
+    const reelCard = h('div', { class: 'card stack hidden' },
+      reelTitle, judgesEl, reel.el,
+      h('div', { class: 'row' }, replayBtn, stopBtn, downloadBtn),
+      status);
+
+    let current = null;
+    const setBusy = (busy) => {
+      replayBtn.disabled = downloadBtn.disabled = busy;
+      for (const btn of document.querySelectorAll('.board .watch')) btn.disabled = busy;
+      stopBtn.classList.toggle('hidden', !busy);
+    };
+    const takesOf = (player) => state.takes.filter((t) => t.player === player);
+
+    async function watch(player, { record = false } = {}) {
+      current = player;
+      reelTitle.replaceChildren(h('span', { class: 'dot', style: { background: player.color } }), ' ', player.name);
+      judgesEl.replaceChildren(...JUDGES.map((j, i) => {
+        const sum = takesOf(player).reduce((acc, t) => acc + t.verdicts[i].score, 0);
+        return h('div', { class: 'judge-total' },
+          h('span', { class: 'avatar' }, j.avatar),
+          h('span', null, h('b', null, j.name), h('div', { class: 'muted small' }, j.specialty)),
+          h('span', { class: 'pts' }, sum.toFixed(1)));
+      }));
+      reelCard.classList.remove('hidden');
+      reelCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      status.textContent = record ? '⏺ Собираем видео… Не переключайте вкладку.' : '';
+      setBusy(true);
+      try {
+        const blob = await reel.play(takesOf(player), { record });
+        if (blob) {
+          const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+          downloadBlob(blob, `dub-club-${player.name.replace(/[\\/:*?"<>|]+/g, '_')}.${ext}`);
+          status.textContent = `Видео сохранено (${ext.toUpperCase()}).`;
+        } else if (record) {
+          status.textContent = 'Запись видео остановлена.';
+        }
+      } catch (err) {
+        console.error(err);
+        toast(`Не удалось ${record ? 'собрать видео' : 'проиграть дубли'}: ${err?.message || err}`, { error: true });
+        status.textContent = '';
+      }
+      setBusy(false);
+    }
+
+    replayBtn.onclick = () => watch(current);
+    downloadBtn.onclick = () => {
+      if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
+        return toast('Этот браузер не умеет записывать видео. Попробуйте Chrome или Firefox.', { error: true });
+      }
+      watch(current, { record: true });
+    };
+
     mount(h('section', { class: 'screen' },
       h('div', { class: 'hero' },
         h('div', { class: 'logo' }, '🏆'),
         h('h1', null, state.players.length > 1 ? `${winner.name} побеждает!` : 'Финал'),
         h('p', { class: 'muted' }, `${winner.total.toFixed(1)} из ${max} очков`)),
-      board(),
+      board((p) => watch(p)),
+      reelCard,
       h('div', { class: 'row' },
         h('button', { class: 'primary big', onclick: () => gameScreen(nav, { pack, players }) }, '↻ Ещё раз'),
-        h('button', { class: 'big', onclick: nav.menu }, 'В меню'))));
+        h('button', { class: 'big', onclick: nav.menu }, 'В меню'))),
+    () => reel.stop());
   }
 
   turnScreen();
