@@ -20,18 +20,18 @@ export function gameScreen(nav, { pack, players, rounds }) {
     round: 0,
     turn: 0,
     players: players.map((p) => ({ ...p, total: 0, rounds: [] })),
+    // Takes are judged only after the last round, so nobody plays to the scoreboard.
+    takes: [],
   };
   const refFeatures = new WeakMap();
 
-  const header = (subtitle) => {
-    const player = state.players[state.turn];
-    return h('div', { class: 'topbar' },
+  const header = (subtitle, player = state.players[state.turn], round = state.round) =>
+    h('div', { class: 'topbar' },
       h('div', { class: 'row' },
-        h('span', { class: 'pill' }, `Раунд ${state.round + 1}/${rounds}`),
+        h('span', { class: 'pill' }, `Раунд ${round + 1}/${rounds}`),
         h('span', { class: 'pill' }, h('span', { class: 'dot', style: { background: player.color } }), player.name),
         subtitle && h('span', { class: 'pill' }, subtitle)),
       h('button', { onclick: () => { if (confirm('Выйти из игры?')) nav.menu(); } }, '✕ Выйти'));
-  };
 
   async function turnScreen() {
     const line = roundLines[state.round];
@@ -120,11 +120,13 @@ export function gameScreen(nav, { pack, players, rounds }) {
 
       doneBtn.classList.add('hidden');
       meter.classList.add('hidden');
-      status.replaceChildren('Жюри совещается… ');
+      status.replaceChildren('Сохраняем дубль… ');
       try {
         const takeBuffer = await decode(blob);
         const metrics = compare(ref, await extractFeatures(takeBuffer));
-        verdictScreen({ line, prep, takeBuffer, metrics });
+        state.takes.push({ player, round: state.round, line, prep, takeBuffer, metrics });
+        toast('Дубль записан. Оценки — в конце игры!');
+        next();
       } catch (err) {
         console.error(err);
         toast('Не получилось обработать запись, попробуйте ещё раз.', { error: true });
@@ -134,13 +136,21 @@ export function gameScreen(nav, { pack, players, rounds }) {
     }
   }
 
-  function verdictScreen({ line, prep, takeBuffer, metrics }) {
-    const player = state.players[state.turn];
-    const verdicts = judge(metrics);
-    const total = Math.round(verdicts.reduce((sum, v) => sum + v.score, 0) * 10) / 10;
-    player.total = Math.round((player.total + total) * 10) / 10;
-    player.rounds.push({ title: line.title, score: total });
+  // Score every take up front so the results stay correct whatever happens during the reveal.
+  function judgeAll() {
+    for (const take of state.takes) {
+      take.verdicts = judge(take.metrics);
+      take.total = Math.round(take.verdicts.reduce((sum, v) => sum + v.score, 0) * 10) / 10;
+      take.player.total = Math.round((take.player.total + take.total) * 10) / 10;
+      take.player.rounds.push({ title: take.line.title, score: take.total });
+    }
+    if (state.takes.length) verdictScreen(0);
+    else resultsScreen();
+  }
 
+  function verdictScreen(index) {
+    const { player, round, prep, takeBuffer, verdicts, total } = state.takes[index];
+    const last = index === state.takes.length - 1;
     const stage = createStage(prep);
     const cards = verdicts.map((v) => {
       const scoreEl = h('div', { class: 'score' }, '?');
@@ -153,11 +163,15 @@ export function gameScreen(nav, { pack, players, rounds }) {
       return { v, el, scoreEl, commentEl };
     });
     const totalEl = h('div', { class: 'total hidden' }, 'Итого за раунд: ', h('b', null, total.toFixed(1)), ' / 30');
-    const nextBtn = h('button', { class: 'primary big', disabled: true, onclick: next }, 'Дальше →');
+    const nextBtn = h('button', {
+      class: 'primary big',
+      disabled: true,
+      onclick: () => (last ? resultsScreen() : verdictScreen(index + 1)),
+    }, last ? 'К итогам 🏆' : 'Дальше →');
     let alive = true;
 
     mount(h('section', { class: 'screen' },
-      header('Вердикт'),
+      header(`Вердикт ${index + 1}/${state.takes.length}`, player, round),
       h('div', { class: 'judges' }, cards.map((c) => c.el)),
       totalEl,
       h('div', { class: 'card stack' },
@@ -196,9 +210,16 @@ export function gameScreen(nav, { pack, players, rounds }) {
     if (state.turn < state.players.length) return turnScreen();
     state.turn = 0;
     state.round++;
-    if (state.round >= rounds) return resultsScreen();
-    if (state.players.length > 1) return boardScreen();
+    if (state.round >= rounds) return judgeAll();
+    if (state.players.length > 1) return intermissionScreen();
     return turnScreen();
+  }
+
+  function intermissionScreen() {
+    mount(h('section', { class: 'screen' },
+      h('h2', null, `Раунд ${state.round} позади`),
+      h('p', { class: 'muted' }, 'Жюри держит оценки в секрете до конца игры.'),
+      h('button', { class: 'primary big', onclick: turnScreen }, `Раунд ${state.round + 1} ▶`)));
   }
 
   function board() {
@@ -210,13 +231,6 @@ export function gameScreen(nav, { pack, players, rounds }) {
         h('span', null, h('span', { class: 'dot', style: { background: p.color } }), ' ', h('b', null, p.name),
           h('div', { class: 'muted small' }, p.rounds.map((r) => r.score.toFixed(1)).join(' · '))),
         h('span', { class: 'pts' }, p.total.toFixed(1)))));
-  }
-
-  function boardScreen() {
-    mount(h('section', { class: 'screen' },
-      h('h2', null, `Табло после раунда ${state.round}`),
-      board(),
-      h('button', { class: 'primary big', onclick: turnScreen }, `Раунд ${state.round + 1} ▶`)));
   }
 
   function resultsScreen() {

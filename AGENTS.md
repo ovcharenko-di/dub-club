@@ -49,7 +49,7 @@ js/
 
 ## Данные и совместимость
 
-- IndexedDB: база `dub-club`, store `packs`, keyPath `id`. Два вида паков:
+- IndexedDB: база `dub-club` (в превью веток на Pages — `dub-club@<ветка>`, чтобы не портить паки стабильной версии), store `packs`, keyPath `id`. Два вида паков:
   - обычный: `{ id, name, lines: [{ id, title, hint, kind: 'audio'|'video', blob, start, end, duration }] }`;
   - видеопак из редактора: `{ id, name, type: 'video', video: Blob, videoName, cues: [{ id, start, end, text }] }`. Для игры он разворачивается в `lines` функцией `withLines()`.
 - Файл пака (`*.dubpack.zip`) содержит `pack.json` (`format: 'dub-club-pack'`, `version: 1`), `subtitles.srt` и видео. У пользователей уже есть сохранённые паки и файлы: **меняй схему только с обратной совместимостью**, а при несовместимых изменениях повышай `version` и поддерживай чтение старых версий.
@@ -93,4 +93,9 @@ js/
 
 ## Деплой
 
-`.github/workflows/pages.yml` выкладывает `index.html`, `css/` и `js/` на GitHub Pages при пуше в ветки из `on.push.branches`. Новые каталоги с файлами сайта нужно добавить в шаг `Collect site files`. Pages включается в настройках репозитория (Source: GitHub Actions); для приватного репозитория нужен платный план GitHub.
+`.github/workflows/pages.yml` при пуше или удалении любой ветки пересобирает весь сайт на GitHub Pages:
+
+- `develop` → корень сайта, стабильная версия: https://ovcharenko-di.github.io/dub-club/;
+- остальные ветки → `/branches/<имя-ветки>/` (`/` в имени заменяется на `-`), список веток: https://ovcharenko-di.github.io/dub-club/branches/.
+
+Новые каталоги с файлами сайта нужно добавить в `site_files` в шаге `Collect site files`. В окружении `github-pages` (Settings → Environments) деплой должен быть разрешён из всех веток. Pages включается в настройках репозитория (Source: GitHub Actions); для приватного репозитория нужен платный план GitHub.

@@ -229,7 +229,10 @@ export function forgetPrepared(line) {
 
 // ---------- Custom packs in IndexedDB ----------
 
-const DB_NAME = 'dub-club';
+// Branch previews on Pages share the origin with the stable app; a separate
+// database keeps experimental schema changes away from the user's real packs.
+const previewBranch = location.pathname.match(/\/branches\/([^/]+)\//)?.[1];
+const DB_NAME = previewBranch ? `dub-club@${previewBranch}` : 'dub-club';
 const STORE = 'packs';
 const memoryFallback = new Map();
 
