@@ -1,8 +1,12 @@
 name: Deploy to GitHub Pages
 
+# Pages hosts a single site per repository, so every run rebuilds all of it:
+# develop goes to the root (the stable app), every other branch to /branches/<name>/.
+# A push or delete on any branch refreshes the whole site, so removed branches disappear.
 on:
   push:
-    branches: [main, claude/choicer-voicer-app-0rlicq]
+    branches: ['**']
+  delete:
   workflow_dispatch:
 
 permissions:
@@ -22,9 +26,46 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/configure-pages@v5
       - name: Collect site files
-        run: mkdir _site && cp -r index.html css js _site/
+        run: |
+          set -o pipefail
+          # Site files of a branch; add new site directories here.
+          site_files='index.html css js'
+          export_branch() {
+            mkdir -p "$2"
+            git archive "origin/$1" $site_files | tar -x -C "$2"
+          }
+
+          mkdir _site
+          export_branch develop _site
+
+          mkdir -p _site/branches
+          links=''
+          for branch in $(git for-each-ref --format='%(refname:lstrip=3)' refs/remotes/origin); do
+            case "$branch" in HEAD|develop) continue ;; esac
+            slug=$(printf '%s' "$branch" | sed 's#[^A-Za-z0-9._-]#-#g')
+            # Old branches may lack some site files; skip them instead of failing the deploy.
+            if ! export_branch "$branch" "_site/branches/$slug"; then
+              echo "::warning::Skipped branch $branch: no site files"
+              rm -rf "_site/branches/$slug"
+              continue
+            fi
+            date=$(git log -1 --format=%cs "origin/$branch")
+            links="$links<li><a href=\"$slug/\">$branch</a> <small>$date</small></li>"
+          done
+
+          cat > _site/branches/index.html <<EOF
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Dub Club — ветки</title>
+          <h1>Dub Club — ветки</h1>
+          <p><a href="../">Стабильная версия (develop)</a></p>
+          <ul>$links</ul>
+          EOF
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
