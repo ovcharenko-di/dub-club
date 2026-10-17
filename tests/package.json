@@ -1,0 +1,12 @@
+{
+  "name": "dub-club-tests",
+  "private": true,
+  "description": "Browser tests for Dub Club. The site itself has no dependencies; only these tests need Playwright.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-concurrency=1"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}

@@ -1,4 +1,4 @@
-import { h, mount, toast, countdown, sleep, shuffle } from '../ui.js';
+import { h, mount, toast, countdown, sleep } from '../ui.js';
 import { getMic, micErrorMessage, Recorder, decode, startMeter } from '../audio.js';
 import { prepareLine } from '../packs.js';
 import { extractFeatures, compare } from '../analysis.js';
@@ -7,14 +7,10 @@ import { createStage } from '../stage.js';
 
 const EXTRA_RECORD_TIME = 1.2; // seconds on top of the line length
 
-export function gameScreen(nav, { pack, players, rounds }) {
-  // Pick lines for every round, reshuffling whenever the pack runs out.
-  const roundLines = [];
-  let pool = [];
-  for (let r = 0; r < rounds; r++) {
-    if (!pool.length) pool = shuffle(pack.lines);
-    roundLines.push(pool.pop());
-  }
+export function gameScreen(nav, { pack, players }) {
+  // One round per line, in pack order: a game always plays the whole pack.
+  const roundLines = pack.lines;
+  const rounds = roundLines.length;
 
   const state = {
     round: 0,
@@ -244,7 +240,7 @@ export function gameScreen(nav, { pack, players, rounds }) {
         h('p', { class: 'muted' }, `${winner.total.toFixed(1)} из ${max} очков`)),
       board(),
       h('div', { class: 'row' },
-        h('button', { class: 'primary big', onclick: () => gameScreen(nav, { pack, players, rounds }) }, '↻ Ещё раз'),
+        h('button', { class: 'primary big', onclick: () => gameScreen(nav, { pack, players }) }, '↻ Ещё раз'),
         h('button', { class: 'big', onclick: nav.menu }, 'В меню'))));
   }
 
