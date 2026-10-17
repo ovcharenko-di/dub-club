@@ -62,15 +62,6 @@ export function formatTime(sec) {
   return m ? `${m}:${s}` : `${s.replace(/^0(?=\d)/, '')} с`;
 }
 
-export function shuffle(items) {
-  const a = [...items];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = h('a', { href: url, download: filename });
